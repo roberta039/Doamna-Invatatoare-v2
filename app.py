@@ -1975,18 +1975,7 @@ with st.sidebar:
         st.caption(f"🆔 Sesiune: {st.session_state.session_id[:16]}...")
 
 
-# === MAIN UI — TEME / BAC / QUIZ / CHAT ===
-if st.session_state.get("homework_mode"):
-    run_homework_ui()
-    st.stop()
-
-if st.session_state.get("bac_mode"):
-    run_bac_sim_ui()
-    st.stop()
-
-if st.session_state.get("quiz_mode"):
-    run_quiz_ui()
-    st.stop()
+# === CHAT MODE ===
 
 # === ÎNCĂRCARE MESAJE (CHAT MODE) ===
 if "messages" not in st.session_state or not st.session_state.messages:
@@ -2033,7 +2022,7 @@ for i, msg in enumerate(st.session_state.messages):
 TYPING_HTML = """
 <div class="typing-indicator">
     <div class="typing-dots"><span></span><span></span><span></span></div>
-    <span>Domnul Profesor scrie...</span>
+    <span>Doamna Învățătoare scrie... ✏️</span>
 </div>
 """
 
@@ -2073,7 +2062,7 @@ if st.session_state.get("_quick_action"):
                 save_message_with_limits(st.session_state.session_id, "assistant", full_response)
             except Exception as e:
                 st.error(f"❌ Eroare: {e}")
-    st.stop()
+    st.rerun()
 
 # ── Handler întrebare sugerată — ÎNAINTE de afișarea butoanelor ──
 if st.session_state.get("_suggested_question"):
@@ -2084,7 +2073,7 @@ if st.session_state.get("_suggested_question"):
     save_message_with_limits(st.session_state.session_id, "user", user_input)
 
     # ── Detecție automată materie ──
-    _selector_materie = MATERII.get(st.session_state.get("materie_selectata", "🎓 Toate materiile"))
+    _selector_materie = MATERII.get(st.session_state.get("materie_selectata", "🌟 Toate materiile"))
     if _selector_materie is None:
         _detected = detect_subject_from_text(user_input)
         _prev_detected = st.session_state.get("_detected_subject")
@@ -2155,3 +2144,88 @@ INTREBARI_SUGERATE = {
         "Cum spun animalele în engleză? 🐱",
     ],
 }
+
+# ── Input chat principal ──
+if user_input := st.chat_input("Întreabă Doamna Învățătoare... ✏️"):
+
+    now_ts = time.time()
+    last_msg = st.session_state.get("_last_user_msg", "")
+    last_ts  = st.session_state.get("_last_msg_ts", 0)
+    DEBOUNCE_SECONDS = 2.5
+
+    if user_input.strip() == last_msg.strip() and (now_ts - last_ts) < DEBOUNCE_SECONDS:
+        st.toast("⏳ Mesaj duplicat ignorat.", icon="🔁")
+        st.stop()
+
+    st.session_state["_last_user_msg"] = user_input
+    st.session_state["_last_msg_ts"]  = now_ts
+
+    with st.chat_message("user"):
+        st.markdown(user_input)
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    save_message_with_limits(st.session_state.session_id, "user", user_input)
+
+    # ── Detecție automată materie ──
+    _toate_key = "🌟 Toate materiile" if "app3.py" == "app3.py" else "🌺 Toate materiile"
+    _selector_materie = MATERII.get(st.session_state.get("materie_selectata", _toate_key))
+    if _selector_materie is None:
+        _detected = detect_subject_from_text(user_input)
+        _prev_detected = st.session_state.get("_detected_subject")
+        if _detected and _detected != _prev_detected:
+            update_system_prompt_for_subject(_detected)
+            st.toast(f"📚 Materie detectată: {_detected.capitalize()}", icon="🎯")
+    else:
+        if st.session_state.get("_detected_subject") != _selector_materie:
+            update_system_prompt_for_subject(_selector_materie)
+
+    context_messages = get_context_for_ai(st.session_state.messages)
+    history_obj = []
+    for msg in context_messages:
+        role_gemini = "model" if msg["role"] == "assistant" else "user"
+        history_obj.append({"role": role_gemini, "parts": [msg["content"]]})
+
+    final_payload = []
+    if media_content:
+        fname_up = uploaded_file.name if uploaded_file else ""
+        ftype = (uploaded_file.type if uploaded_file else "") or ""
+        if ftype.startswith("image/"):
+            final_payload.append(
+                "Elevul ți-a trimis o imagine. Analizează-o vizual complet și răspunde la întrebarea elevului."
+            )
+        else:
+            final_payload.append(
+                f"Elevul ți-a trimis documentul '{fname_up}'. Citește și analizează tot conținutul înainte de a răspunde."
+            )
+        final_payload.append(media_content)
+    final_payload.append(user_input)
+
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        full_response = ""
+        message_placeholder.markdown(TYPING_HTML, unsafe_allow_html=True)
+
+        try:
+            stream_generator = run_chat_with_rotation(history_obj, final_payload)
+            first_chunk = True
+
+            for text_chunk in stream_generator:
+                full_response += text_chunk
+                if first_chunk:
+                    first_chunk = False
+                if "<svg" in full_response or ("<path" in full_response and "stroke=" in full_response):
+                    message_placeholder.markdown(
+                        full_response.split("<path")[0] + "\n\n*🎨 Doamna desenează...*\n\n▌",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    message_placeholder.markdown(full_response + "▌")
+
+            message_placeholder.empty()
+            render_message_with_svg(full_response)
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
+            save_message_with_limits(st.session_state.session_id, "assistant", full_response)
+
+        except Exception as e:
+            message_placeholder.empty()
+            err = str(e)
+            st.error(f"❌ {err}")
