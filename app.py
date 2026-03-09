@@ -1379,17 +1379,18 @@ if "key_index" not in st.session_state:
 
 # === MATERII ===
 MATERII = {
-    "🎓 Toate materiile": None,
-    "📐 Matematică":      "matematică",
-    "⚡ Fizică":          "fizică",
-    "🧪 Chimie":          "chimie",
-    "📖 Română":          "limba și literatura română",
-    "🇫🇷 Franceză":       "limba franceză",
-    "🇬🇧 Engleză":        "limba engleză",
-    "🌍 Geografie":       "geografie",
-    "🏛️ Istorie":         "istorie",
-    "💻 Informatică":     "informatică",
-    "🧬 Biologie":        "biologie",
+    "🌟 Toate materiile":                              None,
+    "📖 Limba și literatura română":                   "limba și literatura română",
+    "🔢 Matematică":                                   "matematică",
+    "🌿 Matematică și explorarea mediului (cls 1-2)":  "matematică și explorarea mediului",
+    "🧪 Științe ale naturii (cls 3-4)":                "științe ale naturii",
+    "🇬🇧 Limba modernă (Engleză)":                     "limba engleză",
+    "🎭 Educație civică (cls 3-4)":                    "educație civică",
+    "💛 Dezvoltare personală":                         "dezvoltare personală",
+    "🎨 Arte vizuale și lucru manual":                 "arte vizuale și lucru manual",
+    "🎵 Muzică și mișcare":                            "muzică și mișcare",
+    "🏃 Educație fizică":                              "educație fizică",
+    "🙏 Religie":                                      "religie",
 }
 
 
