@@ -1888,47 +1888,6 @@ with st.sidebar:
                 media_content = None
                 st.rerun()
 
-    st.divider()
-
-    # --- Mod Quiz + BAC ---
-    st.divider()
-    st.subheader("📝 Examinare & BAC")
-
-    def _clear_all_modes():
-        for k in list(st.session_state.keys()):
-            if k.startswith("bac_") or k.startswith("hw_"):
-                st.session_state.pop(k, None)
-        for k in ["quiz_active", "quiz_questions", "quiz_correct", "quiz_answers", "quiz_submitted"]:
-            st.session_state.pop(k, None)
-
-    col_q, col_b = st.columns(2)
-    with col_q:
-        if st.button("🎯 Quiz rapid", use_container_width=True,
-                     type="primary" if st.session_state.get("quiz_mode") else "secondary"):
-            entering = not st.session_state.get("quiz_mode", False)
-            _clear_all_modes()
-            st.session_state.quiz_mode = entering
-            st.session_state.pop("bac_mode", None)
-            st.session_state.pop("homework_mode", None)
-            st.rerun()
-    with col_b:
-        if st.button("🎓 Simulare BAC", use_container_width=True,
-                     type="primary" if st.session_state.get("bac_mode") else "secondary"):
-            entering = not st.session_state.get("bac_mode", False)
-            _clear_all_modes()
-            st.session_state.bac_mode = entering
-            st.session_state.pop("quiz_mode", None)
-            st.session_state.pop("homework_mode", None)
-            st.rerun()
-
-    if st.button("📚 Corectează Temă", use_container_width=True,
-                 type="primary" if st.session_state.get("homework_mode") else "secondary"):
-        entering = not st.session_state.get("homework_mode", False)
-        _clear_all_modes()
-        st.session_state.homework_mode = entering
-        st.session_state.pop("quiz_mode", None)
-        st.session_state.pop("bac_mode", None)
-        st.rerun()
 
     st.divider()
 
@@ -2062,7 +2021,7 @@ if st.session_state.get("_quick_action"):
                 save_message_with_limits(st.session_state.session_id, "assistant", full_response)
             except Exception as e:
                 st.error(f"❌ Eroare: {e}")
-    st.rerun()
+        st.rerun()
 
 # ── Handler întrebare sugerată — ÎNAINTE de afișarea butoanelor ──
 if st.session_state.get("_suggested_question"):
