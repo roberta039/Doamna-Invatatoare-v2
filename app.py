@@ -565,13 +565,15 @@ def inject_session_js():
         // Nu punem niciodată sid în URL de la noi — previne partajarea istoricului
 
         // ── API KEY ──
+        const isValidKey = (k) => !!k && (k.startsWith('AIza') || k.startsWith('AQ.'));
+
         const keyFromUrl = params.get('apikey');
-        if (keyFromUrl && keyFromUrl.startsWith('AIza')) {
+        if (isValidKey(keyFromUrl)) {
             localStorage.setItem(APIKEY_KEY, keyFromUrl);
             params.delete('apikey');
         } else {
             const storedKey = localStorage.getItem(APIKEY_KEY);
-            if (storedKey && storedKey.startsWith('AIza') && !params.get('apikey')) {
+            if (isValidKey(storedKey) && !params.get('apikey')) {
                 params.set('apikey', storedKey);
             }
         }
@@ -1267,7 +1269,7 @@ if not st.session_state.get("_js_injected"):
 # ── Pasul 1: citește cheia elevului din localStorage (via ?apikey= pus de JS) ──
 if not st.session_state.get("_manual_api_key"):
     key_from_url = st.query_params.get("apikey", "")
-    if key_from_url and key_from_url.startswith("AIza") and len(key_from_url) > 20:
+    if key_from_url and (key_from_url.startswith("AIza") or key_from_url.startswith("AQ.")) and len(key_from_url) > 20:
         st.session_state["_manual_api_key"] = key_from_url.strip()
         # Curățăm din URL — JS a salvat deja în localStorage
         st.query_params.pop("apikey", None)
@@ -1328,7 +1330,7 @@ with st.sidebar:
 **Pasul 4** — Dacă ți se cere, alege **"Create API key in new project"**.
 
 **Pasul 5** — Copiază cheia afișată.
-- Arată astfel: `AIzaSy...` (39 caractere)
+- Poate arăta astfel: `AIzaSy...` sau, la conturile mai noi, `AQ.Ab8...`
 - Apasă iconița 📋 de lângă cheie
 
 **Pasul 6** — Lipește cheia mai jos și apasă **Salvează**.
@@ -1347,14 +1349,14 @@ with st.sidebar:
             )
             if st.button("✅ Salvează cheia", use_container_width=True, type="primary", key="save_api_key"):
                 clean = new_key.strip().strip('"').strip("'")
-                if clean and clean.startswith("AIza") and len(clean) > 20:
+                if clean and (clean.startswith("AIza") or clean.startswith("AQ.")) and len(clean) > 20:
                     st.session_state["_manual_api_key"] = clean
                     keys.append(clean)
                     st.query_params["apikey"] = clean
                     st.toast("✅ Cheie salvată în browser!", icon="🔑")
                     st.rerun()
                 else:
-                    st.error("❌ Cheie invalidă. Trebuie să înceapă cu 'AIza' și să aibă minim 20 caractere.")
+                    st.error("❌ Cheie invalidă. Trebuie să înceapă cu 'AIza' sau 'AQ.' și să aibă minim 20 caractere.")
 
         else:
             # Cheia e salvată — arată doar statusul și butonul de ștergere, fără ghid
@@ -1671,6 +1673,77 @@ safety_settings = [
     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
+
+# === MODEL GEMINI ===
+GEMINI_MODEL = "gemini-3.5-flash"
+
+# Erori care indică faptul că trebuie încercată cheia API următoare din pool
+# (cotă epuizată, cheie invalidă/blocată, rate limit) — NU rotim la erori de conținut.
+_ROTATE_ON_ERROR_MARKERS = (
+    "quota", "rate limit", "429", "resource_exhausted",
+    "permission_denied", "api_key_invalid", "api key not valid",
+    "unauthenticated", "401", "403",
+)
+
+
+def run_chat_with_rotation(history_obj: list, message_parts: list):
+    """
+    Trimite mesajul curent la Gemini (cu tot istoricul conversației) și
+    face streaming al răspunsului, bucată cu bucată.
+
+    Dacă cheia API curentă eșuează dintr-un motiv legat de cotă/autentificare
+    (cotă epuizată, cheie invalidă, rate limit), trece automat la
+    următoarea cheie din `keys` și reia cererea — elevul nu vede eroarea,
+    doar o mică întârziere. Dacă TOATE cheile eșuează, ridică excepția
+    ultimei erori întâlnite.
+
+    Args:
+        history_obj: istoricul conversației, format Gemini
+                      ([{"role": "user"/"model", "parts": [...]}, ...]).
+        message_parts: mesajul curent de trimis (listă de text și/sau
+                        obiecte fișier Google).
+
+    Yields:
+        str: bucăți de text pe măsură ce sosesc de la model (streaming).
+    """
+    n_keys = len(keys)
+    if n_keys == 0:
+        raise RuntimeError("Nicio cheie API disponibilă.")
+
+    last_error = None
+    start_index = st.session_state.get("key_index", 0) % n_keys
+
+    for attempt in range(n_keys):
+        idx = (start_index + attempt) % n_keys
+        api_key = keys[idx]
+        try:
+            client = genai.Client(api_key=api_key)
+            chat = client.chats.create(
+                model=GEMINI_MODEL,
+                history=history_obj,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=st.session_state.get("system_prompt", ""),
+                    safety_settings=safety_settings,
+                ),
+            )
+            for chunk in chat.send_message_stream(message_parts):
+                if getattr(chunk, "text", None):
+                    yield chunk.text
+
+            # Cererea a reușit — reținem cheia care a funcționat pentru reruns viitoare
+            st.session_state.key_index = idx
+            return
+
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            if any(marker in err_str for marker in _ROTATE_ON_ERROR_MARKERS) and attempt < n_keys - 1:
+                # Trecem la cheia următoare din pool și reîncercăm
+                continue
+            # Eroare care nu ține de cheie (ex. conținut blocat) — nu are rost să rotim
+            raise
+
+    raise RuntimeError(f"Toate cheile API sunt indisponibile momentan. Ultima eroare: {last_error}")
 
 
 
